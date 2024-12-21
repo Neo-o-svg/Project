@@ -1,6 +1,7 @@
 import dearpygui.dearpygui as dpg
 from transport import *
 import json
+import time
 
 # ---------- Глобальные рабочие переменные----------
 
@@ -13,7 +14,7 @@ transport_row_count = 1
 # ---------- Настройки интерфейса ----------
 
 window_width, window_height = 1000, 800
-popup_window_width, popup_window_height = 800, 500
+popup_window_width, popup_window_height = 800, 400
 state_button_width = 100
 height_of_small_spacer = 10
 height_of_medium_spacer = 30
@@ -78,15 +79,17 @@ def save_data():
 # ---------- Функция показа предупреждающего окна ----------
 def show_warning_modal(message):
     """Отображает модальное окно с текстом предупреждения или ошибки."""
+    time.sleep(0.1)  # Небольшая задержка перед показом окна
     if not dpg.does_item_exist("warning_modal"):
-        with dpg.window(tag="warning_modal", label="Предупреждение", modal=True, width=popup_window_width, height=popup_window_height, show=True, no_resize=True):
+        with dpg.window(tag="warning_modal", label="Предупреждение", modal=True, width=popup_window_width, height=popup_window_height, show=False, no_resize=True):
             dpg.add_text(tag="warning_message")
             dpg.add_spacer(height=height_of_small_spacer)
             dpg.add_button(label="Закрыть", callback=lambda: dpg.configure_item(
                 "warning_modal", show=False))
 
     dpg.set_value("warning_message", message)
-    dpg.configure_item("warning_modal", show=True)
+    dpg.configure_item("warning_modal", show=True) 
+
 
 # ---------- Функции для таблиц ----------
 
@@ -118,7 +121,10 @@ def update_vehicles_table():
 
     for vehicle in company.vehicles:
         with dpg.table_row(parent="vehicles_table"):
-            dpg.add_checkbox(tag=f"vehicle_checkbox_{vehicle.vehicle_id}")
+            # Привязываем уникальный чекбокс для каждого транспортного средства по его ID
+            checkbox_tag = f"vehicle_checkbox_{vehicle.vehicle_id}"
+            # Чекбокс для каждого транспорта
+            dpg.add_checkbox(tag=checkbox_tag)
             dpg.add_text(str(vehicle.vehicle_id))
             dpg.add_text("Самолет" if isinstance(
                 vehicle, Airplane) else "Грузовик")
@@ -129,17 +135,17 @@ def update_vehicles_table():
 def update_distribution_table():
     existing_clients = set()  # Для отслеживания добавленных клиентов
 
-    # Удаляем предыдущие строки
+   
     dpg.delete_item("distribution_table", children_only=True)
 
-    # Добавляем заголовки таблицы
+
     dpg.add_table_column(label="Имя клиента", parent="distribution_table")
     dpg.add_table_column(label="Вес груза (кг)", parent="distribution_table")
     dpg.add_table_column(label="VIP статус", parent="distribution_table")
     dpg.add_table_column(label="Транспорт ID", parent="distribution_table")
     dpg.add_table_column(label="Тип транспорта", parent="distribution_table")
 
-    # Заполняем таблицу
+
     for vehicle in company.vehicles:
         for client in vehicle.clients_list:
             # Создаем уникальный ключ клиента на основе имени и веса груза
@@ -162,7 +168,7 @@ def update_distribution_table():
     dpg.set_value("status_bar", "Таблица распределения успешно обновлена!")
 
 
-def delete_selected_object(table_tag, data_list, checkbox_prefix):
+def delete_selected_client_object(table_tag, data_list, checkbox_prefix):
     """Удаляет выбранные объекты на основе состояния чекбоксов."""
     items_to_delete = []
 
@@ -180,14 +186,44 @@ def delete_selected_object(table_tag, data_list, checkbox_prefix):
 
     if table_tag == "clients_table":
         update_clients_table()
-    elif table_tag == "vehicles_table":
-        update_vehicles_table()
+
 
     dpg.set_value("status_bar", "Объект(ы) успешно удалены!")
 
 
-# ---------- Функции клиента----------
+def delete_selected_transport_object(table_tag, data_list, checkbox_prefix):
+    """Удаляет выбранные объекты на основе состояния чекбоксов."""
+    items_to_delete = []
 
+
+    for idx in range(len(data_list)):
+        checkbox_tag = f"{checkbox_prefix}_{data_list[idx].vehicle_id}"
+        if dpg.does_item_exist(checkbox_tag) and dpg.get_value(checkbox_tag):
+            items_to_delete.append(idx)
+
+
+    if not items_to_delete:
+        dpg.set_value("status_bar", "Выберите объект для удаления.")
+        return
+
+
+    for idx in sorted(items_to_delete, reverse=True):
+        if table_tag == "vehicles_table":
+            vehicle = data_list[idx]
+            print(f"Удаление транспорта: {vehicle}")  
+            # Удаляем транспортное средство из списка компании
+            del data_list[idx]
+            update_vehicles_table()  
+
+    dpg.set_value("status_bar", "Объект(ы) успешно удалены!")
+
+
+
+
+   
+
+
+# ---------- Функции клиента----------
 
 def create_new_client(sender, app_data):
     client_name = dpg.get_value("name_input")
@@ -198,21 +234,28 @@ def create_new_client(sender, app_data):
         show_warning_modal("Ошибка: Все поля должны быть заполнены.")
         return False, "Ошибка добавления клиента: все поля должны быть заполнены."
 
+
     try:
         cargo_weight = float(cargo_weight)
     except ValueError:
         show_warning_modal("Ошибка: Вес груза должен быть числом.")
-        return False, "Вес груза должен быть положительным числом и не более 10000 кг."
+        dpg.set_value("cargo_weight_input", "")  # Очищаем поле ввода
+        return False, "Ошибка добавления клиента: вес груза должен быть числом."
+
 
     if not (client_name.isalpha() and len(client_name) >= 2):
         show_warning_modal(
-            "Имя клиента должно содержать только буквы и быть длиной от 2 символов.")
-        return False, "Имя клиента должно содержать только буквы и быть длиной от 2 символов."
+            "Ошибка: Имя клиента должно содержать только буквы и быть длиной от 2 символов.")
+        dpg.set_value("name_input", "")  # Очищаем поле ввода
+        return False, "Ошибка добавления клиента: Имя клиента должно содержать только буквы и быть длиной от 2 символов."
 
-    elif not (0 < cargo_weight <= 10000):
+   
+    if not (0 < cargo_weight <= 10000):
         show_warning_modal(
-            "Вес груза должен быть положительным числом и не более 10000 кг.")
-        return False, "Вес груза должен быть положительным числом и не более 10000 кг."
+            "Ошибка: Вес груза должен быть положительным числом и не более 10000 кг.")
+        dpg.set_value("cargo_weight_input", "")  # Очищаем поле ввода
+        return False, "Ошибка добавления клиента: Вес груза должен быть положительным числом и не более 10000 кг."
+
 
     company.add_client(Client(client_name, cargo_weight, is_vip))
     update_clients_table()
@@ -231,20 +274,20 @@ def add_new_transport(sender, app_data):
         show_warning_modal("Ошибка: Все поля должны быть заполнены.")
         return
 
+
     try:
         capacity = float(capacity)
     except ValueError:
-        dpg.set_value(
-            "status_bar", "Ошибка: Грузоподъемность должна быть числом.")
         show_warning_modal("Ошибка: Грузоподъемность должна быть числом.")
+        dpg.set_value("capacity_input", "")  # Очищаем поле ввода
         return
 
     if capacity <= 0:
-        dpg.set_value(
-            "status_bar", "Грузоподъемность должна быть положительным числом.")
         show_warning_modal(
-            "Грузоподъемность должна быть положительным числом.")
+            "Ошибка: Грузоподъемность должна быть положительным числом.")
+        dpg.set_value("capacity_input", "")  # Очищаем поле ввода
         return
+
 
     if transport_mode == "Самолет":
         company.add_vehicle(Airplane(0))
@@ -358,10 +401,10 @@ with dpg.window(tag="Main Window", label="CTK Logistic Company",  width=window_w
 
     # ---------- Зона удаления обьекта ----------
     with dpg.group(horizontal=True):
-        dpg.add_button(label="Удалить клиента", callback=lambda: delete_selected_object(
+        dpg.add_button(label="Удалить клиента", callback=lambda: delete_selected_client_object(
             "clients_table", company.clients, "client_checkbox"))
         dpg.add_spacer(width=width_of_small_spacer)
-        dpg.add_button(label="Удалить транспорт", callback=lambda: delete_selected_object(
+        dpg.add_button(label="Удалить транспорт", callback=lambda: delete_selected_transport_object(
             "vehicles_table", company.vehicles, "vehicle_checkbox"))
 
     # ---------- Статусная строка ----------
